@@ -1,0 +1,31 @@
+{
+  "name": "pi-basic-tools",
+  "version": "0.1.0",
+  "description": "Standalone core productivity tools for pi: multi-edit, files, fetch, glob, grep, list, answer, and Sourcegraph.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lulucatdev/pi-basic-tools.git"
+  },
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "editing",
+    "search"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ]
+  },
+  "dependencies": {
+    "diff": "^8.0.2"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*",
+    "@sinclair/typebox": "*"
+  }
+}
