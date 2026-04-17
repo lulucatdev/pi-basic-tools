@@ -34,7 +34,7 @@ pi update git:github.com/lulucatdev/pi-basic-tools
 
 ## Notes
 
-- `glob`, `grep`, and `list` use the bundled ripgrep helper and binary when a system `rg` is unavailable.
+- `glob`, `grep`, and `list` use the bundled ripgrep helper. This package currently ships a fallback binary only for macOS Apple Silicon (`bin/rg-darwin-arm64`); other platforms should have `rg` installed on the system path.
 - `multi-edit` depends on the `diff` npm package, which is installed through package dependencies.
 
 ## License
