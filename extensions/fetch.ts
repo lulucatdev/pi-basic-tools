@@ -5,7 +5,7 @@
  * attempts to convert that stored file to Markdown with MarkItDown.
  */
 
-import { access, mkdir, unlink, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { extname, join, relative, resolve } from "node:path";
 import type { ExecResult, ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
@@ -48,6 +48,14 @@ interface MarkitdownStatus {
 	error?: string;
 }
 
+interface ReadTargetSummary {
+	path: string;
+	pathDisplay: string;
+	kind: "markdown" | "raw-text" | "raw-binary";
+	lineCount?: number;
+	tokenEstimate?: number;
+}
+
 interface FetchArtifactMetadata {
 	schemaVersion: number;
 	id: string;
@@ -61,6 +69,7 @@ interface FetchArtifactMetadata {
 		rawPath: string;
 		markdownPath?: string;
 	};
+	recommendedRead: ReadTargetSummary;
 	converter: {
 		name: "markitdown";
 		success: boolean;
@@ -83,6 +92,7 @@ interface FetchDetails {
 	markdownPathDisplay?: string;
 	metadataPath: string;
 	metadataPathDisplay: string;
+	readTarget: ReadTargetSummary;
 	markitdown: MarkitdownStatus;
 }
 
@@ -125,14 +135,22 @@ async function pathExists(filePath: string): Promise<boolean> {
 }
 
 async function ensureProjectRoot(cwd: string): Promise<string> {
-	let current = resolve(cwd);
+	const start = resolve(cwd);
+	const homeDir = process.env.HOME ? resolve(process.env.HOME) : undefined;
+	const globalPiDir = homeDir ? join(homeDir, ".pi") : undefined;
+	let current = start;
 	while (true) {
-		if (await pathExists(join(current, ".pi"))) return current;
 		if (await pathExists(join(current, ".git"))) return current;
+		const localPiDir = join(current, ".pi");
+		if ((await pathExists(localPiDir)) && localPiDir !== globalPiDir) return current;
 		const parent = resolve(current, "..");
-		if (parent === current) return resolve(cwd);
+		if (parent === current || current === homeDir) break;
 		current = parent;
 	}
+	if (start === homeDir) {
+		throw new Error("Refusing to store fetch artifacts in global ~/.pi. Run fetch from a project directory.");
+	}
+	return start;
 }
 
 async function createArtifactDir(rootDir: string, label: string): Promise<{ id: string; dir: string }> {
@@ -191,6 +209,36 @@ function trimCommandOutput(text: string, maxChars = 1200): string {
 	const normalized = text.trim();
 	if (normalized.length <= maxChars) return normalized;
 	return `${normalized.slice(0, maxChars)}...`;
+}
+
+function isLikelyTextContentType(contentType: string): boolean {
+	const normalized = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
+	return (
+		normalized.startsWith("text/") ||
+		normalized.includes("json") ||
+		normalized.includes("xml") ||
+		normalized.includes("javascript") ||
+		normalized.includes("yaml") ||
+		normalized.includes("csv")
+	);
+}
+
+function summarizeTextForContext(text: string): Pick<ReadTargetSummary, "lineCount" | "tokenEstimate"> {
+	if (text.length === 0) {
+		return { lineCount: 0, tokenEstimate: 0 };
+	}
+	const normalized = text.replace(/\r\n/g, "\n");
+	return {
+		lineCount: normalized.split("\n").length,
+		tokenEstimate: Math.max(1, Math.ceil(normalized.length / 4)),
+	};
+}
+
+function formatReadTargetStats(readTarget: ReadTargetSummary): string {
+	if (readTarget.lineCount === undefined || readTarget.tokenEstimate === undefined) {
+		return readTarget.kind === "raw-binary" ? " (binary file; line and token estimate unavailable)" : "";
+	}
+	return ` (${readTarget.lineCount} lines, ~${readTarget.tokenEstimate} tokens)`;
 }
 
 async function removeIfExists(filePath: string): Promise<void> {
@@ -261,9 +309,7 @@ function buildResultText(details: FetchDetails): string {
 		details.markitdown.success
 			? `MarkItDown: success (${details.markitdown.command})`
 			: `MarkItDown: failed (${details.markitdown.error ?? "unknown error"})`,
-		details.markdownPathDisplay
-			? `Next: use read on ${details.markdownPathDisplay}`
-			: `Next: use read on ${details.rawPathDisplay}`,
+		`Context follow-up: use read on ${details.readTarget.pathDisplay}${formatReadTargetStats(details.readTarget)}`,
 	];
 	return lines.join("\n");
 }
@@ -277,11 +323,10 @@ function renderSummary(details: FetchDetails, theme: any): string {
 	lines.push(theme.fg("dim", `Raw: ${details.rawPathDisplay}`));
 	if (details.markdownPathDisplay) {
 		lines.push(theme.fg("dim", `Markdown: ${details.markdownPathDisplay}`));
-		lines.push(theme.fg("dim", `Next: read ${details.markdownPathDisplay}`));
 	} else {
 		lines.push(theme.fg("warning", "Markdown: conversion failed"));
-		lines.push(theme.fg("dim", `Next: read ${details.rawPathDisplay}`));
 	}
+	lines.push(theme.fg("dim", `Context: read ${details.readTarget.pathDisplay}${formatReadTargetStats(details.readTarget)}`));
 	lines.push(theme.fg("dim", `Metadata: ${details.metadataPathDisplay}`));
 	if (details.markitdown.success) {
 		lines.push(theme.fg("dim", `MarkItDown: ${details.markitdown.command}`));
@@ -359,6 +404,30 @@ export default function (pi: ExtensionAPI) {
 					Math.max(timeoutSec * 1000, MARKITDOWN_TIMEOUT_MS),
 				);
 
+				let readTarget: ReadTargetSummary;
+				if (markitdown.success) {
+					const markdownText = await readFile(markdownPath, "utf8");
+					readTarget = {
+						path: markdownPath,
+						pathDisplay: toDisplayPath(projectRoot, markdownPath),
+						kind: "markdown",
+						...summarizeTextForContext(markdownText),
+					};
+				} else if (isLikelyTextContentType(contentType)) {
+					readTarget = {
+						path: rawPath,
+						pathDisplay: toDisplayPath(projectRoot, rawPath),
+						kind: "raw-text",
+						...summarizeTextForContext(buffer.toString("utf8")),
+					};
+				} else {
+					readTarget = {
+						path: rawPath,
+						pathDisplay: toDisplayPath(projectRoot, rawPath),
+						kind: "raw-binary",
+					};
+				}
+
 				const details: FetchDetails = {
 					id: artifact.id,
 					url,
@@ -372,6 +441,7 @@ export default function (pi: ExtensionAPI) {
 					markdownPathDisplay: markitdown.success ? toDisplayPath(projectRoot, markdownPath) : undefined,
 					metadataPath,
 					metadataPathDisplay: toDisplayPath(projectRoot, metadataPath),
+					readTarget,
 					markitdown,
 				};
 
@@ -388,6 +458,7 @@ export default function (pi: ExtensionAPI) {
 						rawPath,
 						markdownPath: markitdown.success ? markdownPath : undefined,
 					},
+					recommendedRead: readTarget,
 					converter: {
 						name: "markitdown",
 						success: markitdown.success,

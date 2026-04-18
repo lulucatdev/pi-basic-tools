@@ -87,7 +87,7 @@ pipx upgrade markitdown
 
 ## Fetch storage and conversion
 
-The `fetch` tool does not inline the fetched page body into the tool result. Instead, it stores artifacts under the current project's `.pi/fetch/` directory using a timestamp-plus-slug layout similar to task artifacts:
+The `fetch` tool does not inline the fetched page body into the tool result. Instead, it stores artifacts under the current project's `.pi/fetch/` directory using a timestamp-plus-slug layout similar to task artifacts. It does not fall back to the global `~/.pi`; if you run it directly from your home directory, it refuses and asks you to work from a project directory.
 
 ```text
 .pi/fetch/<timestamp>-<slug>/
@@ -115,11 +115,15 @@ If conversion fails, the raw response is still preserved and `meta.json` records
 
 ### Expected workflow after `fetch`
 
+The `fetch` result explicitly tells the agent which saved file to read next. It also reports a rough line count and token estimate for that recommended file so the model can decide whether to read it immediately.
+
 After calling `fetch`, inspect the generated Markdown with `read`:
 
 ```text
 read .pi/fetch/<timestamp>-<slug>/content.md
 ```
+
+If Markdown conversion fails, `fetch` points `read` at the raw saved response instead. For binary responses it still preserves the file, but line and token estimates are omitted because they would not be meaningful.
 
 If Markdown conversion fails, inspect either of these instead:
 
