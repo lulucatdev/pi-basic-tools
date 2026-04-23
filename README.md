@@ -2,16 +2,13 @@
 
 Standalone basic tools for pi.
 
-This package bundles a practical set of editing, search, file-navigation, and web-reference extensions split out from `pi-goodstuff`.
+This package bundles a practical set of editing, file-navigation, fetch, and web-reference extensions split out from `pi-goodstuff`.
 
 ## Included extensions
 
 - `multi-edit`
 - `files`
 - `fetch`
-- `glob`
-- `grep`
-- `list`
 - `answer`
 - `sourcegraph`
 
@@ -22,15 +19,12 @@ This package bundles a practical set of editing, search, file-navigation, and we
 When pi installs this package from git, it runs `npm install` for the package automatically.
 
 - npm dependency: `diff` for `multi-edit`
-- bundled ripgrep helper: `extensions/lib/ripgrep.ts`
-- bundled ripgrep fallback binary: `bin/rg-darwin-arm64`
 
 ### External tools you must provide
 
 - `fetch` requires [MarkItDown](https://github.com/microsoft/markitdown) for Markdown conversion.
 - MarkItDown upstream requires Python 3.10 or newer.
 - Recommended installation method: `pipx`, so the `markitdown` CLI is available on `PATH` without modifying the package itself.
-- `glob`, `grep`, and `list` use the bundled ripgrep fallback only on macOS Apple Silicon. Other platforms should have `rg` installed on the system path.
 
 ## Installation
 

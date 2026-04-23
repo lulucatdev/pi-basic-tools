@@ -1,7 +1,7 @@
 {
   "name": "pi-basic-tools",
   "version": "0.1.0",
-  "description": "Standalone core productivity tools for pi: multi-edit, files, fetch, glob, grep, list, answer, and Sourcegraph.",
+  "description": "Standalone core productivity tools for pi: multi-edit, files, fetch, answer, and Sourcegraph.",
   "repository": {
     "type": "git",
     "url": "https://github.com/lulucatdev/pi-basic-tools.git"
@@ -16,7 +16,11 @@
   ],
   "pi": {
     "extensions": [
-      "./extensions"
+      "./extensions/multi-edit.ts",
+      "./extensions/files.ts",
+      "./extensions/fetch.ts",
+      "./extensions/answer.ts",
+      "./extensions/sourcegraph.ts"
     ]
   },
   "dependencies": {
