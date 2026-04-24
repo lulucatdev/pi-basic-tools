@@ -2,15 +2,71 @@
 
 Standalone basic tools for pi.
 
-This package bundles a practical set of editing, file-navigation, fetch, and web-reference extensions split out from `pi-goodstuff`.
+This package bundles a practical set of editing, file-navigation, fetch, web-reference, and built-in search activation extensions split out from `pi-goodstuff`.
 
 ## Included extensions
 
 - `multi-edit`
 - `files`
 - `fetch`
+- `enable-builtin-search` (activates pi's built-in `grep`, `find`, and `ls` tools)
+- `basic-tools` (question, todo, checkpoints)
 - `answer`
 - `sourcegraph`
+
+## Core helper tools
+
+`basic-tools` adds small, session-friendly tools that make common agent workflows safer:
+
+- `question`: ask the user a focused question with optional choices and free-text fallback.
+- `todo`: maintain a lightweight per-session task list for short multi-step work. It is intentionally not a replacement for plan documents or Ralph loops.
+- `checkpoint`: save the current working tree as a restorable patch snapshot under `.pi/checkpoints/<id>/`, including `patch`, `meta.json`, and a `latest` pointer. It never restores automatically.
+
+### Tool toggles
+
+Use `/basic-tools-settings` to toggle these tools without editing package files:
+
+```text
+/basic-tools-settings
+/basic-tools-settings list
+/basic-tools-settings enable todo
+/basic-tools-settings disable checkpoint
+/basic-tools-settings disable all
+```
+
+Settings are stored in `~/.pi/agent/basic-tools-settings.json`. Startup/reload applies the settings, while explicit no-tools sessions are respected.
+
+### Built-in search activation
+
+`enable-builtin-search` activates pi's internal `grep`, `find`, and `ls` tools. Legacy custom `glob`, `grep`, and `list` implementations were removed so they cannot shadow pi's built-ins.
+
+## Checkpoint snapshots
+
+`checkpoint` is intentionally patch-based: it does not commit, stash, reset, or modify the worktree. It records the current diff so the user or agent can manually apply or reverse it later.
+
+```text
+.pi/checkpoints/<id>/
+  patch
+  meta.json
+.pi/checkpoints/latest
+```
+
+### Files written by `checkpoint`
+
+- `patch`: a `git apply`-compatible patch for tracked changes and, by default, untracked files that can be represented as patch additions.
+- `meta.json`: schema version, checkpoint id, label, optional description, creation time, branch, HEAD, file statuses, diff stat, untracked file list, patch size, and restore commands.
+- `latest`: the most recent checkpoint id, for quick inspection without changing git history.
+
+### Restore workflow
+
+`checkpoint` only prints commands; it does not run them automatically.
+
+```bash
+git apply .pi/checkpoints/<id>/patch
+git apply --reverse .pi/checkpoints/<id>/patch
+```
+
+The patch should normally be applied from a clean tree based on the same HEAD recorded in `meta.json`. Staged state is not preserved; the checkpoint restores file content in the working tree. Large binary diffs can still exceed the default 5 MB guard; pass a larger `maxBytes` value when intentionally checkpointing large artifacts.
 
 ## Runtime requirements and dependencies
 
@@ -23,6 +79,7 @@ When pi installs this package from git, it runs `npm install` for the package au
 ### External tools you must provide
 
 - `fetch` requires [MarkItDown](https://github.com/microsoft/markitdown) for Markdown conversion.
+- Activated built-in `grep` and `find` use pi's managed `rg` and `fd` tools; install them on `PATH` or let pi download them when needed.
 - MarkItDown upstream requires Python 3.10 or newer.
 - Recommended installation method: `pipx`, so the `markitdown` CLI is available on `PATH` without modifying the package itself.
 
@@ -126,11 +183,24 @@ read .pi/fetch/<timestamp>-<slug>/response.<ext>
 read .pi/fetch/<timestamp>-<slug>/meta.json
 ```
 
+## Future tool ideas
+
+Good candidates for later `pi-basic-tools` additions:
+
+- `diagnostics` / `check`: run project-aware lint/test/typecheck commands with structured, compressed results.
+- `repo_map`: summarize important files, symbols, and dependency edges for quick orientation.
+- `symbols`: LSP or Serena-backed `find_symbol`, `references`, and safe rename/replace helpers.
+- Structured git write tools: guarded branch/commit helpers that never hide dirty worktree risk.
+- Context utilities: inspect active tools, model context usage, and recent large tool outputs.
+
+Browser automation, heavy web research, and semantic language-server workflows may be better as separate packages or MCP integrations instead of bloating this core package.
+
 ## Notes
 
 - `fetch` keeps a 5 MB response-size guard.
 - `fetch` saves binary responses safely; it does not force them through text decoding before writing them to disk.
-- This repository currently includes a bundled ripgrep fallback only for macOS Apple Silicon.
+- `checkpoint` stores patch snapshots only; it does not preserve staged/index state and should usually be restored from the same HEAD recorded in `meta.json`.
+- Legacy custom `glob`, `grep`, and `list` implementations are intentionally absent; pi's built-in `grep`, `find`, and `ls` are preferred.
 
 ## License
 

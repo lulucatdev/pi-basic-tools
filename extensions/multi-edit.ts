@@ -3,7 +3,7 @@
  *
  * Supports all original parameters (path, oldText, newText) plus:
  * - `multi`: array of {path, oldText, newText} edits applied in sequence
- * - `patch`: Codex-style apply_patch payload
+ * - `patch`: Codex-style add/update/delete patch payload
  *
  * When both top-level params and `multi` are provided, the top-level edit
  * is treated as an implicit first item prepended to the multi list.
@@ -18,7 +18,7 @@ import { Type } from "@sinclair/typebox";
 import * as Diff from "diff";
 import { constants } from "fs";
 import { access as fsAccess, readFile as fsReadFile, unlink as fsUnlink, writeFile as fsWriteFile } from "fs/promises";
-import { isAbsolute, resolve as resolvePath } from "path";
+import { dirname, isAbsolute, resolve as resolvePath } from "path";
 
 const editItemSchema = Type.Object({
 	path: Type.Optional(Type.String({ description: "Path to the file to edit (relative or absolute). Inherits from top-level path if omitted." })),
@@ -38,7 +38,7 @@ const multiEditSchema = Type.Object({
 	patch: Type.Optional(
 		Type.String({
 			description:
-				"Codex-style apply_patch payload (*** Begin Patch ... *** End Patch). Mutually exclusive with path/oldText/newText/multi.",
+				"Codex-style add/update/delete patch payload (*** Begin Patch ... *** End Patch). Mutually exclusive with path/oldText/newText/multi.",
 		}),
 	),
 });
@@ -476,7 +476,16 @@ function createRealWorkspace(): Workspace {
 				return false;
 			}
 		},
-		checkWriteAccess: (absolutePath: string) => fsAccess(absolutePath, constants.R_OK | constants.W_OK),
+		checkWriteAccess: async (absolutePath: string) => {
+			const parent = dirname(absolutePath);
+			try {
+				await fsAccess(absolutePath, constants.F_OK);
+				await fsAccess(absolutePath, constants.R_OK | constants.W_OK);
+			} catch (error: any) {
+				if (error?.code !== "ENOENT") throw error;
+			}
+			await fsAccess(parent, constants.W_OK);
+		},
 	};
 }
 
@@ -532,6 +541,22 @@ async function applyPatchOperations(
 	const results: PatchOpResult[] = [];
 	const collectDiff = options?.collectDiff ?? false;
 
+	// Verify every target before the real pass mutates any file.
+	for (const op of ops) {
+		if (signal?.aborted) {
+			throw new Error("Operation aborted");
+		}
+		const abs = resolvePatchPath(cwd, op.path);
+		const exists = await workspace.exists(abs);
+		if (op.kind === "add" && exists) {
+			throw new Error(`Failed to add ${op.path}: file already exists. Use *** Update File instead.`);
+		}
+		if (op.kind !== "add" && !exists) {
+			throw new Error(`Failed to ${op.kind} ${op.path}: file does not exist`);
+		}
+		await workspace.checkWriteAccess(abs);
+	}
+
 	for (const op of ops) {
 		if (signal?.aborted) {
 			throw new Error("Operation aborted");
@@ -539,10 +564,10 @@ async function applyPatchOperations(
 
 		if (op.kind === "add") {
 			const abs = resolvePatchPath(cwd, op.path);
-			let oldText = "";
-			if (collectDiff && (await workspace.exists(abs))) {
-				oldText = await workspace.readText(abs);
+			if (await workspace.exists(abs)) {
+				throw new Error(`Failed to add ${op.path}: file already exists. Use *** Update File instead.`);
 			}
+			const oldText = "";
 			const newText = ensureTrailingNewline(op.contents);
 			await workspace.writeText(abs, newText);
 			const result: PatchOpResult = { path: op.path, message: `Added file ${op.path}.` };
@@ -701,18 +726,42 @@ async function applyClassicEdits(
 	return results;
 }
 
+async function applyCodexPatch(patch: string, cwd: string, signal?: AbortSignal) {
+	const ops = parsePatch(patch);
+
+	// Preflight on virtual filesystem before mutating real files.
+	await applyPatchOperations(ops, createVirtualWorkspace(cwd), cwd, signal, { collectDiff: false });
+
+	// Apply for real.
+	const applied = await applyPatchOperations(ops, createRealWorkspace(), cwd, signal, { collectDiff: true });
+	const summary = applied.map((r, i) => `${i + 1}. ${r.message}`).join("\n");
+	const combinedDiff = applied
+		.filter((r) => r.diff)
+		.map((r) => `File: ${r.path}\n${r.diff}`)
+		.join("\n\n");
+	const firstChangedLine = applied.find((r) => r.firstChangedLine !== undefined)?.firstChangedLine;
+
+	return {
+		content: [{ type: "text" as const, text: `Applied patch with ${applied.length} operation(s).\n${summary}` }],
+		details: {
+			diff: combinedDiff,
+			firstChangedLine,
+		},
+	};
+}
+
 export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "edit",
 		label: "multi-edit",
 		description:
-			"Edit a file by replacing exact text. The oldText must match exactly (including whitespace). Use this for precise, surgical edits. Supports a `multi` parameter for batch edits across one or more files, and a `patch` parameter for Codex-style patches.",
+			"Edit a file by replacing exact text. The oldText must match exactly (including whitespace). Use this for precise, surgical edits. Supports a `multi` parameter for batch edits across one or more files, and a `patch` parameter for Codex-style add/update/delete patches.",
 		promptSnippet:
-			"Edit files by replacing exact text. Supports single edits, batch `multi` edits, and Codex-style `patch` for multi-file changes.",
+			"Edit files by replacing exact text. Supports single edits, batch `multi` edits, and Codex-style add/update/delete `patch` payloads.",
 		promptGuidelines: [
 			"Use edit for precise changes (old text must match exactly)",
 			"When making multiple changes, ALWAYS use the `multi` parameter to batch edits in one tool call instead of calling edit repeatedly",
-			"Use the `patch` parameter for Codex-style multi-file / hunk-based edits",
+			"Use the `patch` parameter for Codex-style add/update/delete multi-file edits",
 			"NEVER use bash/python scripts to modify files — use edit with multi or patch instead",
 		],
 		parameters: multiEditSchema,
@@ -726,26 +775,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (patch !== undefined) {
-				const ops = parsePatch(patch);
-
-				// Preflight on virtual filesystem before mutating real files.
-				await applyPatchOperations(ops, createVirtualWorkspace(ctx.cwd), ctx.cwd, signal, { collectDiff: false });
-
-				// Apply for real.
-				const applied = await applyPatchOperations(ops, createRealWorkspace(), ctx.cwd, signal, { collectDiff: true });
-				const summary = applied.map((r, i) => `${i + 1}. ${r.message}`).join("\n");
-				const combinedDiff = applied
-					.filter((r) => r.diff)
-					.map((r) => `File: ${r.path}\n${r.diff}`)
-					.join("\n\n");
-				const firstChangedLine = applied.find((r) => r.firstChangedLine !== undefined)?.firstChangedLine;
-				return {
-					content: [{ type: "text" as const, text: `Applied patch with ${applied.length} operation(s).\n${summary}` }],
-					details: {
-						diff: combinedDiff,
-						firstChangedLine,
-					},
-				};
+				return applyCodexPatch(patch, ctx.cwd, signal);
 			}
 
 			// Build classic edit list.
