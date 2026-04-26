@@ -16,6 +16,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { constants } from "fs";
+import { diffLines } from "../vendor/diff/line.js";
 import { access as fsAccess, readFile as fsReadFile, unlink as fsUnlink, writeFile as fsWriteFile } from "fs/promises";
 import { dirname, isAbsolute, resolve as resolvePath } from "path";
 
@@ -73,96 +74,6 @@ interface PatchOpResult {
 	message: string;
 	diff?: string;
 	firstChangedLine?: number;
-}
-
-interface DiffPart {
-	value: string;
-	added?: boolean;
-	removed?: boolean;
-}
-
-function splitDiffLines(text: string): string[] {
-	const lines = text.split("\n");
-	if (lines[lines.length - 1] === "") lines.pop();
-	return lines;
-}
-
-function makeDiffPart(lines: string[], added?: boolean, removed?: boolean): DiffPart | undefined {
-	if (lines.length === 0) return undefined;
-	return { value: `${lines.join("\n")}\n`, added, removed };
-}
-
-function diffLines(oldContent: string, newContent: string): DiffPart[] {
-	const oldLines = splitDiffLines(oldContent);
-	const newLines = splitDiffLines(newContent);
-	let prefix = 0;
-	while (prefix < oldLines.length && prefix < newLines.length && oldLines[prefix] === newLines[prefix]) prefix++;
-
-	let oldSuffix = oldLines.length - 1;
-	let newSuffix = newLines.length - 1;
-	while (oldSuffix >= prefix && newSuffix >= prefix && oldLines[oldSuffix] === newLines[newSuffix]) {
-		oldSuffix--;
-		newSuffix--;
-	}
-
-	const parts: DiffPart[] = [];
-	const push = (part: DiffPart | undefined) => {
-		if (part) parts.push(part);
-	};
-	push(makeDiffPart(oldLines.slice(0, prefix)));
-
-	const oldMiddle = oldLines.slice(prefix, oldSuffix + 1);
-	const newMiddle = newLines.slice(prefix, newSuffix + 1);
-	if (oldMiddle.length * newMiddle.length > 200_000) {
-		push(makeDiffPart(oldMiddle, false, true));
-		push(makeDiffPart(newMiddle, true, false));
-		push(makeDiffPart(oldLines.slice(oldSuffix + 1)));
-		return parts;
-	}
-
-	const width = newMiddle.length + 1;
-	const table = new Uint32Array((oldMiddle.length + 1) * width);
-	for (let i = oldMiddle.length - 1; i >= 0; i--) {
-		for (let j = newMiddle.length - 1; j >= 0; j--) {
-			table[i * width + j] = oldMiddle[i] === newMiddle[j]
-				? table[(i + 1) * width + j + 1] + 1
-				: Math.max(table[(i + 1) * width + j], table[i * width + j + 1]);
-		}
-	}
-
-	let i = 0;
-	let j = 0;
-	let pending: DiffPart | undefined;
-	const flush = () => {
-		if (pending) parts.push(pending);
-		pending = undefined;
-	};
-	const append = (line: string, added?: boolean, removed?: boolean) => {
-		if (!pending || pending.added !== added || pending.removed !== removed) {
-			flush();
-			pending = { value: "", added, removed };
-		}
-		pending.value += `${line}\n`;
-	};
-
-	while (i < oldMiddle.length && j < newMiddle.length) {
-		if (oldMiddle[i] === newMiddle[j]) {
-			append(oldMiddle[i]);
-			i++;
-			j++;
-		} else if (table[(i + 1) * width + j] >= table[i * width + j + 1]) {
-			append(oldMiddle[i], false, true);
-			i++;
-		} else {
-			append(newMiddle[j], true, false);
-			j++;
-		}
-	}
-	while (i < oldMiddle.length) append(oldMiddle[i++], false, true);
-	while (j < newMiddle.length) append(newMiddle[j++], true, false);
-	flush();
-	push(makeDiffPart(oldLines.slice(oldSuffix + 1)));
-	return parts;
 }
 
 function generateDiffString(

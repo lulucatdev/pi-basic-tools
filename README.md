@@ -42,7 +42,7 @@ Settings are stored in `~/.pi/agent/basic-tools-settings.json`. Startup/reload a
 
 ### Bundled in this package
 
-`multi-edit` ships its diff renderer inline, so it does not require `node_modules` or a post-`pi update` `npm install` step.
+`multi-edit` vendors the line-diff implementation from `diff@8.0.2` under `vendor/diff/`, so it does not require `node_modules` or a post-`pi update` `npm install` step.
 
 ### External tools you must provide
 
