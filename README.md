@@ -40,11 +40,9 @@ Settings are stored in `~/.pi/agent/basic-tools-settings.json`. Startup/reload a
 
 ## Runtime requirements and dependencies
 
-### Installed automatically by pi
+### Bundled in this package
 
-When pi installs this package from git, it runs `npm install` for the package automatically.
-
-- npm dependency: `diff` for `multi-edit`
+`multi-edit` ships its diff renderer inline, so it does not require `node_modules` or a post-`pi update` `npm install` step.
 
 ### External tools you must provide
 
