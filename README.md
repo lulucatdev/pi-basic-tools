@@ -10,7 +10,7 @@ This package bundles a practical set of editing, file-navigation, fetch, web-ref
 - `files`
 - `fetch`
 - `enable-builtin-search` (activates pi's built-in `grep`, `find`, and `ls` tools)
-- `basic-tools` (question, todo, checkpoints)
+- `basic-tools` (question, todo)
 - `answer`
 - `sourcegraph`
 
@@ -20,7 +20,6 @@ This package bundles a practical set of editing, file-navigation, fetch, web-ref
 
 - `question`: ask the user a focused question with optional choices and free-text fallback.
 - `todo`: maintain a lightweight per-session task list for short multi-step work. It is intentionally not a replacement for plan documents or Ralph loops.
-- `checkpoint`: save the current working tree as a restorable patch snapshot under `.pi/checkpoints/<id>/`, including `patch`, `meta.json`, and a `latest` pointer. It never restores automatically.
 
 ### Tool toggles
 
@@ -30,7 +29,6 @@ Use `/basic-tools-settings` to toggle these tools without editing package files:
 /basic-tools-settings
 /basic-tools-settings list
 /basic-tools-settings enable todo
-/basic-tools-settings disable checkpoint
 /basic-tools-settings disable all
 ```
 
@@ -39,34 +37,6 @@ Settings are stored in `~/.pi/agent/basic-tools-settings.json`. Startup/reload a
 ### Built-in search activation
 
 `enable-builtin-search` activates pi's internal `grep`, `find`, and `ls` tools. Legacy custom `glob`, `grep`, and `list` implementations were removed so they cannot shadow pi's built-ins.
-
-## Checkpoint snapshots
-
-`checkpoint` is intentionally patch-based: it does not commit, stash, reset, or modify the worktree. It records the current diff so the user or agent can manually apply or reverse it later.
-
-```text
-.pi/checkpoints/<id>/
-  patch
-  meta.json
-.pi/checkpoints/latest
-```
-
-### Files written by `checkpoint`
-
-- `patch`: a `git apply`-compatible patch for tracked changes and, by default, untracked files that can be represented as patch additions.
-- `meta.json`: schema version, checkpoint id, label, optional description, creation time, branch, HEAD, file statuses, diff stat, untracked file list, patch size, and restore commands.
-- `latest`: the most recent checkpoint id, for quick inspection without changing git history.
-
-### Restore workflow
-
-`checkpoint` only prints commands; it does not run them automatically.
-
-```bash
-git apply .pi/checkpoints/<id>/patch
-git apply --reverse .pi/checkpoints/<id>/patch
-```
-
-The patch should normally be applied from a clean tree based on the same HEAD recorded in `meta.json`. Staged state is not preserved; the checkpoint restores file content in the working tree. Large binary diffs can still exceed the default 5 MB guard; pass a larger `maxBytes` value when intentionally checkpointing large artifacts.
 
 ## Runtime requirements and dependencies
 
@@ -199,7 +169,6 @@ Browser automation, heavy web research, and semantic language-server workflows m
 
 - `fetch` keeps a 5 MB response-size guard.
 - `fetch` saves binary responses safely; it does not force them through text decoding before writing them to disk.
-- `checkpoint` stores patch snapshots only; it does not preserve staged/index state and should usually be restored from the same HEAD recorded in `meta.json`.
 - Legacy custom `glob`, `grep`, and `list` implementations are intentionally absent; pi's built-in `grep`, `find`, and `ls` are preferred.
 
 ## License

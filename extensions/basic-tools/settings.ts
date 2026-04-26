@@ -2,7 +2,7 @@ import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@mariozec
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-export const MANAGED_TOOLS = ["question", "todo", "checkpoint"] as const;
+export const MANAGED_TOOLS = ["question", "todo"] as const;
 
 const REMOVED_TOOLS = ["git_status", "git_diff", "git_log", "git_show"] as const;
 

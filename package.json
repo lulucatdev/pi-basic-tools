@@ -1,7 +1,7 @@
 {
   "name": "pi-basic-tools",
   "version": "0.1.0",
-  "description": "Standalone core productivity tools for pi: multi-edit, question, todo, checkpoint, files, fetch, answer, Sourcegraph, and built-in search activation.",
+  "description": "Standalone core productivity tools for pi: multi-edit, question, todo, files, fetch, answer, Sourcegraph, and built-in search activation.",
   "repository": {
     "type": "git",
     "url": "https://github.com/lulucatdev/pi-basic-tools.git"
